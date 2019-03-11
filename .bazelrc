@@ -1,0 +1,1 @@
+build --host_javabase=@bazel_tools//tools/jdk:absolute_javabase --define=ABSOLUTE_JAVABASE=/opt/openjdk-11.0.1
