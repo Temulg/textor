@@ -1,4 +1,0 @@
-java_library(
-	name = "graph",
-	srcs = glob(["*.java"]),
-)

@@ -6,8 +6,10 @@
 
 package temulg.textor.graph;
 
-import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.concurrent.locks.StampedLock;
+import java.util.function.Consumer;
 
 public final class Vertex<T> {
 	Vertex(T label_) {
@@ -53,6 +55,29 @@ public final class Vertex<T> {
 			other.prevLock.unlockWrite(otherStamp);
 			nextLock.unlockWrite(stamp);
 		}
+	}
+
+	boolean containsEdge(Vertex<T> other) {
+		long stamp = nextLock.readLock();
+		long otherStamp = other.prevLock.readLock();
+
+		try {
+			if (next.capacity() <= other.prev.capacity())
+				return next.contains(other);
+			else
+				return prev.contains(this);
+		} finally {
+			other.prevLock.unlockRead(otherStamp);
+			nextLock.unlockRead(stamp);
+		}
+	}
+
+	Iterator<Vertex<T>> nextIter() {
+		return next.iterator();
+	}
+
+	Iterator<Vertex<T>> prevIter() {
+		return prev.iterator();
 	}
 
 	private int addNext(Vertex<T> other) {
@@ -103,6 +128,12 @@ public final class Vertex<T> {
 		EdgeSet<T> grow();
 
 		EdgeSet<T> shrink();
+
+		int capacity();
+
+		boolean contains(Vertex<T> v);
+
+		Iterator<Vertex<T>> iterator();
 	}
 
 	private static class EmptyEdgeSet<T> implements EdgeSet<T> {
@@ -125,13 +156,38 @@ public final class Vertex<T> {
 		public EdgeSet<T> shrink() {
 			return this;
 		}
+
+		@Override
+		public int capacity() {
+			return 0;
+		}
+
+		@Override
+		public boolean contains(Vertex<T> v) {
+			return false;
+		}
+
+		@Override
+		public Iterator<Vertex<T>> iterator() {
+			return new Iterator<Vertex<T>>() {
+				@Override
+				public boolean hasNext() {
+					return false;
+				}
+
+				@Override
+				public Vertex<T> next() {
+					return null;
+				}
+			};
+		}
 	}
 
 	private static class SingleEdgeSet<T> implements EdgeSet<T> {
 		@Override
 		public int add(Vertex<T> v) {
 			if (vs != null)
-				return v.equals(vs) ? 0 : -1;
+				return v == vs ? 0 : -1;
 			else {
 				vs = v;
 				return 1;
@@ -140,7 +196,7 @@ public final class Vertex<T> {
 
 		@Override
 		public int remove(Vertex<T> v) {
-			return v.equals(vs) ? 2 : 0;
+			return v == vs ? 2 : 0;
 		}
 
 		@Override
@@ -155,6 +211,40 @@ public final class Vertex<T> {
 			return new EmptyEdgeSet<>();
 		}
 
+		@Override
+		public int capacity() {
+			return 1;
+		}
+
+		@Override
+		public boolean contains(Vertex<T> v) {
+			return v == vs;
+		}
+
+		@Override
+		public Iterator<Vertex<T>> iterator() {
+			return new Iterator<Vertex<T>>() {
+				@Override
+				public boolean hasNext() {
+					if (pos == 0) {
+						return vs != null;
+					} else
+						return false;
+				}
+
+				@Override
+				public Vertex<T> next() {
+					if (pos == 0) {
+						pos++;
+						return vs;
+					} else
+						return null;
+				}
+
+				private int pos = 0;
+			};
+		}
+
 		private Vertex<T> vs;
 	}
 
@@ -163,7 +253,7 @@ public final class Vertex<T> {
 		public int add(Vertex<T> v) {
 			for (int pos = 0; pos < vs.length; pos++) {
 				if (vs[pos] != null) {
-					if (v.equals(vs[pos]))
+					if (v == vs[pos])
 						return 0;
 				} else {
 					vs[pos] = v;
@@ -178,7 +268,7 @@ public final class Vertex<T> {
 			int pos = 0;
 			for (; pos < vs.length; pos++) {
 				if (vs[pos] != null) {
-					if (v.equals(vs[pos])) {
+					if (v == vs[pos]) {
 						vs[pos] = null;
 						for (pos++; pos < vs.length; pos++) {
 							if (vs[pos] != null) {
@@ -209,6 +299,47 @@ public final class Vertex<T> {
 			var ns = new SingleEdgeSet<T>();
 			ns.vs = vs[0];
 			return ns;
+		}
+
+
+		@Override
+		public int capacity() {
+			return vs.length;
+		}
+
+		@Override
+		public boolean contains(Vertex<T> v) {
+			for (int pos = 0; pos < vs.length; pos++) {
+				if (v == vs[pos])
+					return true;
+				else if (vs[pos] == null)
+					break;
+			}
+
+			return false;
+		}
+
+		@Override
+		public Iterator<Vertex<T>> iterator() {
+			return new Iterator<Vertex<T>>() {
+				@Override
+				public boolean hasNext() {
+					if (pos < vs.length) {
+						return vs[pos] != null;
+					} else
+						return false;
+				}
+
+				@Override
+				public Vertex<T> next() {
+					if (pos < vs.length)
+						return vs[pos++];
+					else
+						return null;
+				}
+
+				private int pos = 0;
+			};
 		}
 
 		@SuppressWarnings("unchecked")
@@ -247,7 +378,24 @@ public final class Vertex<T> {
 			return ns;
 		}
 
-		private final HashMap<Vertex<T>, Boolean> vs = new HashMap<>();
+		@Override
+		public int capacity() {
+			return (1 << 29) - 1;
+		}
+
+		@Override
+		public boolean contains(Vertex<T> v) {
+			return vs.containsKey(v);
+		}
+
+		@Override
+		public Iterator<Vertex<T>> iterator() {
+			return vs.keySet().iterator();
+		}
+
+		private final IdentityHashMap<
+			Vertex<T>, Boolean
+		> vs = new IdentityHashMap<>();
 	}
 
 	private static final int ARRAY_SET_SIZE = 8;
